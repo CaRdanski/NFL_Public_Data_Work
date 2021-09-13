@@ -34,10 +34,74 @@ preseason.lines <- read_csv("https://raw.githubusercontent.com/nflverse/nfldata/
 #write.csv(preseason.lines,"preseason_lines.csv")
 
 ###Load play by play data
-seasons <- 2015:2020          
+seasons <- 2016:2021          
 pbp <- load_pbp(seasons)
-#write.csv(pbp,"pbp 2015-2020.csv")
 
+pbp_skinny <- pbp %>%
+  select(season,
+         week,
+         game_id,
+         posteam,
+         defteam,
+         play_id,
+         play_type,
+         play_type_nfl,
+         down,
+         ydstogo,
+         yardline_100,
+         yards_gained,
+         score_differential,
+         desc,
+         home_team,
+         away_team,
+         game_seconds_remaining,
+         total_home_score,
+         total_away_score,
+         rusher_player_name,
+         rusher_player_id,
+         receiver_player_name,
+         receiver_player_id,
+         passer_player_name,
+         passer_player_id,
+         pass,
+         rush,
+         ep,
+         epa,
+         wp,
+         wpa,
+         season_type,
+         spread_line,
+         total_line,
+         home_coach,
+         away_coach,
+         xpass,
+         pass_oe,
+         cp,
+         cpoe,
+         series,
+         series_success,
+         series_result,
+         fixed_drive,
+         fixed_drive_result,
+         drive,
+         play_clock,
+         drive_play_count,
+         drive_time_of_possession,
+         drive_first_downs,
+         away_wp,
+         home_wp,
+         interception,
+         touchdown,
+         fumble_lost,
+         safety,
+         kickoff_attempt,
+         field_goal_attempt,
+         field_goal_result,
+         fourth_down_failed,
+         punt_attempt
+         )
+
+write.csv(pbp_skinny,"skinny pbp 2016-2021.csv")
 
 ###Filter and summarize pbp data to player level
 rusher_pbp <- pbp %>% 
