@@ -4,7 +4,7 @@ library(na.tools)
 
 ###Load Playcaller dataset
 playcallers <- read.csv("https://raw.githubusercontent.com/ajreinhard/NFL-public/main/misc-data/playcallers.csv")
-#write.csv(playcallers,"playcallers.csv")
+write.csv(playcallers,"playcallers.csv")
 
 pcs <- playcallers %>% 
   group_by(season,posteam,off_play_caller) %>% 
@@ -13,8 +13,8 @@ pcs <- playcallers %>%
 
 
 ###Load roster data
-roster <- fast_scraper_roster(2015:2020)
-#write.csv(roster,"nfl_rosters 2015-2020.csv")
+roster <- fast_scraper_roster(2019:2021)
+write.csv(roster,"nfl_rosters 2019-2021.csv")
 
 roster_skinny <- roster %>% 
   select(season,team,position,full_name,gsis_id,birth_date,height,weight,headshot_url) %>% 
@@ -31,10 +31,10 @@ games <- read_csv("http://www.habitatring.com/games.csv")  ##Game-level data - p
 ###Load vegas pre-season win totals
 preseason.lines <- read_csv("https://raw.githubusercontent.com/nflverse/nfldata/master/data/win_totals.csv")  ##provided by Lee Sharpe, found on twitter as @LeeSharpeNFL
 
-#write.csv(preseason.lines,"preseason_lines.csv")
+write.csv(preseason.lines,"preseason_lines.csv")
 
 ###Load play by play data
-seasons <- 2016:2021          
+seasons <- 2019:2021          
 pbp <- load_pbp(seasons)
 
 pbp_skinny <- pbp %>%
@@ -101,7 +101,7 @@ pbp_skinny <- pbp %>%
          punt_attempt
          )
 
-write.csv(pbp_skinny,"skinny pbp 2016-2021.csv")
+write.csv(pbp_skinny,"skinny pbp 2019-2021.csv")
 
 ###Filter and summarize pbp data to player level
 rusher_pbp <- pbp %>% 
@@ -162,7 +162,7 @@ team_pbp <- pbp %>%
   filter(!play_type %in% c("qb_kneel","qb_spike"),
          season_type == "REG",
          !is.na(posteam)) %>%
-  group_by(season,posteam,posteam,week,game_date,game_id) %>%
+  group_by(season,posteam,defteam,week,game_date,game_id) %>%
   summarize(sum.team.epa = sum(epa),
             avg.team.epa = mean(epa),
             total.team.plays = n(),
@@ -173,7 +173,7 @@ drive_pbp <- pbp %>%
   filter(!play_type %in% c("qb_kneel","qb_spike"),
          season_type == "REG",
          !is.na(posteam)) %>%
-  group_by(season,posteam,posteam,week,game_date,game_id,series,series_success) %>%
+  group_by(season,posteam,defteam,week,game_date,game_id,series,series_success) %>%
   summarise(count = n()) %>% 
   group_by(season,posteam,week,game_date,game_id) %>% 
   summarise(drives = n_distinct(series),
@@ -263,7 +263,7 @@ season_touches_player_rank <- player_data_pos_ranks %>%
 
 player_data <- full_join(player_data_pos_ranks,season_touches_player_rank,by = c("season","team","player_id","player_name"))
 
-#write.csv(player_data,"player_data_viz.csv")
+write.csv(player_data,"player_data_viz.csv")
 
 ###Add Playcaller data to game and season level
 game_data1 <- left_join(game_data,playcallers, by = c("season","team" = "posteam","game_id"))
