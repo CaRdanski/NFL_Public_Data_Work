@@ -270,6 +270,25 @@ game_data1 <- left_join(game_data,playcallers, by = c("season","team" = "posteam
 game_data2 <- full_join(game_data1,team_pbp, by = c("season","team" = "posteam","game_id","week","game_date"))
 game_data3 <- full_join(game_data2,drive_pbp, by = c("season","team" = "posteam","game_id","week","game_date"))
 
+pit <- game_data3 %>% filter(team == "PIT",season == 2021)
+
+game_lines1 <- pbp_skinny %>% 
+  group_by(game_id,posteam,defteam,home_team,spread_line,total_line) %>% 
+  summarise()
+
+game_lines2 <- as_tibble(game_lines1) %>% 
+  filter(!is.na(posteam)) %>% 
+  mutate(implied_home_score = (total_line/2)+abs(spread_line)/2,
+         implied_away_score = (total_line/2) - abs(spread_line)/2,
+         implied_posteam_score = ifelse(home_team == posteam,implied_home_score,implied_away_score),
+         implied_posteam_win_margin = ifelse(home_team == posteam,abs(spread_line),abs(spread_line)*-1))
+
+game_lines3 <- game_lines2 %>% 
+  select(game_id,posteam,total_line,implied_posteam_score,implied_posteam_win_margin)
+  
+
+game_data4 <- full_join(game_data3,game_lines3, by = c("game_id","team" = "posteam"))
+
 ###Add Vegas expected wins and actual wins to season level
   ##Need to cleanse team name abbreviations to properly join this (LA vs LAC vs LAR vs LV, etc)
 season_data_lines <- left_join(season_data_base,preseason.lines, by = c("season","team"))
@@ -319,5 +338,5 @@ season_data <- season_data_arrange %>%
                                     ifelse(off_play_caller == lag_playcaller,"YoY same playcaller","playcaller change"))) %>% 
   select(-lag_playcaller,-lag_team)
 
-#write.csv(season_data,"season_data_viz.csv")
-write.csv(game_data3,"team_game_data_viz.csv")
+write.csv(season_data,"season_data_viz.csv")
+write.csv(game_data4,"team_game_data_viz.csv")

@@ -1,4 +1,4 @@
-library(nflscrapR)
+##library(nflscrapR)
 library(tidyverse)
 library(dplyr)
 library(na.tools)
@@ -9,27 +9,40 @@ library(modelr)
 
 ##Grab the last 6 years of play by play data. This is sourced from Ben Baldwin's github account. He is a sports writer for the Athletic can be found on twitter @BenBBaldwin
 
-seasons <- 2015:2020          
-pbp <- purrr::map_df(seasons, function(x) {
-  readRDS(
-    url(
-      glue::glue("https://raw.githubusercontent.com/guga31bb/nflfastR-data/master/data/play_by_play_{x}.rds")
-    )
-  )
-}
-)
-
-
-clean_pbp(pbp) ##this adds a few dozen important columns
-
+future::plan("multisession")         
+pbp <- load_pbp(2015:2020)
 
 
 pbpSkinny <- pbp %>%          ##Main Dataset. With data blending below, we'll add a few columns.
   filter(play_type_nfl %in% c("RUSH","PASS")) %>%
   filter(season_type == "REG") %>% 
-  select(season,rusher_player_name,receiver_player_name,game_id,week,posteam,defteam,play_id,desc,epa,ep,yards_gained,yardline_100,
-         total_home_score,total_away_score,pass,rush,play_type,play_type_nfl,down,ydstogo,rusher_player_id,receiver_player_id,home_team,season_type,wp,score_differential,
-         game_seconds_remaining)
+  select(season
+         ,rusher_player_name
+         ,receiver_player_name
+         ,game_id
+         ,week
+         ,posteam
+         ,defteam
+         ,play_id
+         ,desc
+         ,epa
+         ,ep
+         ,yards_gained
+         ,yardline_100
+         ,total_home_score
+         ,total_away_score,pass
+         ,rush,play_type
+         ,play_type_nfl
+         ,down
+         ,ydstogo
+         ,rusher_player_id
+         ,receiver_player_id
+         ,home_team
+         ,season_type
+         ,wp
+         ,cpoe
+         ,score_differential
+         ,game_seconds_remaining)
 
 
 
@@ -108,23 +121,32 @@ proj.train <-pbpSkinny %>%
   ) %>% 
   filter(years.diff >= 0) %>% ##need to find a way to join to the win_loss dataset before season field is removed
   group_by(year.zero,years.diff,posteam,play_type_nfl) %>% 
-  summarise(plays = n()) %>% 
+  summarise(plays = n(),
+            avg_cpoe = sum(cpoe, na.rm = TRUE)/n()
+            ,sum_epa = sum(epa, na.rm = TRUE)
+            ) %>% 
   pivot_wider(names_from = play_type_nfl,
-              values_from = plays) %>% 
-  mutate(pass.percent = PASS/(PASS+RUSH),
-         total.plays = PASS+RUSH) %>% 
+              values_from = c(plays, avg_cpoe, sum_epa)
+              ) %>% 
+  mutate(pass.percent = plays_PASS/(plays_PASS+plays_RUSH),
+         total.plays = plays_PASS+plays_RUSH,
+         total.epa = sum_epa_PASS+sum_epa_RUSH) %>%
+  select(-avg_cpoe_RUSH) %>% 
   pivot_longer(
-    cols = c('PASS','RUSH','pass.percent','total.plays'),
+    cols = c('plays_PASS','plays_RUSH','total.plays', 'pass.percent','sum_epa_PASS','sum_epa_RUSH','total.epa','avg_cpoe_PASS'),
     names_to = "measures",
     values_to = "values") %>% 
   pivot_wider(
     names_from = c(measures, years.diff),
     names_sep = "",
-    values_from = values) %>% 
-  mutate(ThreeYrAvgTotalPlays = (total.plays1 + total.plays2 + total.plays3)/3,
-         ThreeYrAvgPassPer = (pass.percent1 + pass.percent2 + pass.percent3)/3)
+    values_from = values) 
+##%>% 
+  ##mutate(ThreeYrAvgTotalPlays = (total.plays1 + total.plays2 + total.plays3)/3,
+         ##ThreeYrAvgPassPer = (pass.percent1 + pass.percent2 + pass.percent3)/3)
 
-
+##################
+##add in data regarding preseason expectations
+#################
 
 winlines <- read.csv("https://raw.githubusercontent.com/leesharpe/nfldata/master/data/win_totals.csv")
 
@@ -140,29 +162,94 @@ winlines2019 <- winlines %>%
   rename(line1yrsago = line,
          overodds1yrsago = over_odds)
 
-pass.rush.split <- full_join(pass.rush.split,winlines2020,by = c("posteam" = "team"))
+pass.rush.split <- full_join(proj.train,winlines2020,by = c("posteam" = "team"))
 
-pass.rush.split <- full_join(pass.rush.split,winlines2019,by = c("posteam" = "team"))
+pass.rush.split2 <- full_join(pass.rush.split,winlines2019,by = c("posteam" = "team"))
 
-predict_plays <- lm(total.plays0yrsago ~ total.plays1yrsago + total.plays2yrsago  +
-                      pass.percent1yrsago +
-                      line0yrsago + overodds0yrsago + line1yrsago + overodds1yrsago,
-   data = pass.rush.split)
+############################
+##add flags for QB change and playcaller change
+################
+playcallers <- read.csv("https://raw.githubusercontent.com/ajreinhard/NFL-public/main/misc-data/playcallers.csv")
+pcs <- playcallers %>% 
+  group_by(season,posteam,off_play_caller) %>% 
+  summarise(games = n_distinct(game_id)) %>% 
+  filter(games == max(games)) %>% 
+  arrange(posteam,season)
+
+pcs2 <- as_tibble(pcs) %>% 
+  mutate(playcaller_yoy = ifelse(posteam == lag(posteam), ifelse(off_play_caller == lag(off_play_caller)
+                                 ,"no_change","playcaller_change"),"first_year_of_data"))
+
+pcs2020 <- pcs2 %>% 
+  filter(season == 2020) %>% 
+  select(-season,-off_play_caller,-games) %>% 
+  rename(playcaller_yoy0 = playcaller_yoy)
+
+pcs2019 <- pcs2 %>% 
+  filter(season == 2019) %>% 
+  select(-season,-off_play_caller,-games) %>% 
+  rename(playcaller_yoy1 = playcaller_yoy)
+
+qbs <- pbp %>% 
+  filter(!is.na(passer_player_name)) %>% 
+  group_by(season,posteam,passer_player_name) %>% 
+  summarise(games = n_distinct(game_id)) %>% 
+  filter(games == max(games)) %>% 
+  arrange(posteam,season) 
+
+qbs2 <- as_tibble(qbs) %>% 
+  mutate(qb_yoy = ifelse(posteam == lag(posteam), ifelse(passer_player_name == lag(passer_player_name)
+                                                                 ,"no_change","qb_change"),"first_year_of_data"))
+qbs2020 <- qbs2 %>% 
+  filter(season == 2020) %>% 
+  select(-season,-passer_player_name,-games) %>% 
+  rename(qb_yoy0 = qb_yoy)
+
+qbs2019 <- qbs2 %>% 
+  filter(season == 2019) %>% 
+  select(-season,-passer_player_name,-games) %>% 
+  rename(qb_yoy1 = qb_yoy)
+
+pass.rush.split3 <- full_join(pass.rush.split2,pcs2020,by = c("posteam"))
+
+pass.rush.split4 <- full_join(pass.rush.split3,pcs2019,by = c("posteam"))
+
+pass.rush.split5 <- full_join(pass.rush.split4,qbs2020,by = c("posteam"))
+
+pass.rush.split6 <- full_join(pass.rush.split5,qbs2019,by = c("posteam"))
+
+predict_plays <- lm(total.plays0 ~ 
+                      total.plays1 
+                    ##+ total.plays2 
+                    ##+ total.plays3
+                    ##+ pass.percent1 
+                    + qb_yoy0
+                    + qb_yoy1
+                    + playcaller_yoy0
+                    + line0yrsago 
+                    ##+ overodds0yrsago
+                    ##+ total.epa1
+                    ##+ avg_cpoe_PASS1
+                    ##+ line1yrsago
+                    ##+ overodds1yrsago
+                    ##QB Change? Playcaller change?
+                    ,
+   data = pass.rush.split6)
 
 summary(predict_plays)
 
 
-pass.rush.split <- pass.rush.split %>% 
+predicted_plays <- pass.rush.split6 %>% 
   add_predictions(predict_plays) %>% 
-  mutate(prediction.delta = pred-total.plays0yrsago)
+  mutate(prediction.delta = pred-total.plays0)
 
-ggplot(pass.rush.split, aes(x = prediction.delta))+
+ggplot(predicted_plays, aes(x = prediction.delta))+
   geom_density()
 
 ##total plays off between -40 and 40 seems acceptable (that's 2.5plays per game off)
 ##but there are also outliers around -100 and 100
 
-ggplot(pass.rush.split, aes(x = pred, y = total.plays0yrsago))+
+ggplot(predicted_plays, aes(x = pred, y = total.plays0))+
   geom_point()+
   coord_cartesian(xlim = c(850,1100),
                   ylim = c(850,1100))
