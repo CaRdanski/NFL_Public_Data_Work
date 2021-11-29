@@ -210,6 +210,28 @@ qbs2019 <- qbs2 %>%
   select(-season,-passer_player_name,-games) %>% 
   rename(qb_yoy1 = qb_yoy)
 
+pace <- pbp %>% 
+  filter(play_type_nfl %in% c("RUSH","PASS")) %>%
+  filter(season_type == "REG") %>% 
+  mutate(game_script = case_when(score_differential < -14 ~ "losing_two_scores",
+                                 score_differential < -7 ~ "losing_one_score",
+                                 score_differential < 8 ~ "neutral",
+                                 score_differential < 15 ~ "winning_one_score",
+                                 TRUE ~ "winning_two_scores")) %>% 
+  group_by(season,posteam,game_script) %>% 
+  summarize(avg_time_on_play_clock = mean(as.numeric(play_clock),na.rm = TRUE),
+            std_dv_time_on_play_clock = sd(as.numeric(play_clock),na.rm = TRUE))
+
+library(ggridges)
+ggplot(pace, aes(x = avg_time_on_play_clock, y = game_script))+
+  geom_density_ridges()
+
+pace2020 <- as_tibble(pace) %>% 
+  filter(season == 2020,
+         game_script == "neutral") %>% 
+  select(-season,-game_script) %>% 
+  rename(neutral_avg_time_on_play_clock0 = avg_time_on_play_clock)
+
 pass.rush.split3 <- full_join(pass.rush.split2,pcs2020,by = c("posteam"))
 
 pass.rush.split4 <- full_join(pass.rush.split3,pcs2019,by = c("posteam"))
@@ -218,30 +240,37 @@ pass.rush.split5 <- full_join(pass.rush.split4,qbs2020,by = c("posteam"))
 
 pass.rush.split6 <- full_join(pass.rush.split5,qbs2019,by = c("posteam"))
 
+pass.rush.split7 <- full_join(pass.rush.split6,pace2020,by = c("posteam"))
+
 predict_plays <- lm(total.plays0 ~ 
                       total.plays1 
+                    ##+ pass.percent1
                     ##+ total.plays2 
                     ##+ total.plays3
                     ##+ pass.percent1 
                     + qb_yoy0
-                    + qb_yoy1
+                    ##+ qb_yoy1
                     + playcaller_yoy0
                     + line0yrsago 
-                    ##+ overodds0yrsago
+                    + overodds0yrsago
+                    + neutral_avg_time_on_play_clock0
                     ##+ total.epa1
                     ##+ avg_cpoe_PASS1
                     ##+ line1yrsago
                     ##+ overodds1yrsago
-                    ##QB Change? Playcaller change?
+                    ##pace??
                     ,
-   data = pass.rush.split6)
+   data = pass.rush.split7)
 
-summary(predict_plays)
+summary(predict_plays) ##Adj R sq of 0.1384 using plays last year, qb change, playcaller change, the vegas line, and over odds
 
 
 predicted_plays <- pass.rush.split6 %>% 
   add_predictions(predict_plays) %>% 
   mutate(prediction.delta = pred-total.plays0)
+
+mean(predicted_plays$prediction.delta,na.rm = TRUE)
+median(predicted_plays$prediction.delta,na.rm = TRUE)
 
 ggplot(predicted_plays, aes(x = prediction.delta))+
   geom_density()
@@ -254,6 +283,20 @@ ggplot(predicted_plays, aes(x = pred, y = total.plays0))+
   coord_cartesian(xlim = c(850,1100),
                   ylim = c(850,1100))
 
+pbpPace <- pbp %>% 
+  filter(play_type_nfl %in% c("RUSH","PASS")) %>%
+  filter(season_type == "REG") %>% 
+  mutate(game_script = case_when(score_differential < -14 ~ "5.losing_two_scores",
+                                 score_differential < -7 ~ "4.losing_one_score",
+                                 score_differential < 8 ~ "3.neutral",
+                                 score_differential < 15 ~ "2.winning_one_score",
+                                 TRUE ~ "1.winning_two_scores")) %>% 
+  mutate(play_clock2 = as.numeric(play_clock)) %>% 
+  filter(play_clock2 < 25)
+
+ggplot(pbpPace, aes(x = play_clock2, y = game_script))+
+  stat_density_ridges(quantiles = 4, quantile_lines = TRUE)+
+  facet_wrap(~posteam)
 
 ##next we'll try more game-script style variables, e.g. how many plays per game-minute do they run while winning? while losing?
 ##and how many minutes will they be winning/losing during the season, given the pre-season win expectations?
@@ -276,7 +319,11 @@ pbpGameScript <- pbp %>%          ##Main Dataset. With data blending below, we'l
   pivot_wider(names_from = ScoreDiffGameScript,
               values_from = Total.Plays)
 
-Timing <- pbp %>%          ##Main Dataset. With data blending below, we'll add a few columns.
+future::plan("multisession")         
+pbp_long <- load_pbp(2010:2020)
+
+
+Timing <- pbp_long %>%          ##Main Dataset. With data blending below, we'll add a few columns.
   filter(play_type_nfl %in% c("RUSH","PASS")) %>%
   filter(season_type == "REG") %>% 
   select(season,game_id,week,posteam,time_of_day,play_id,desc,epa,ep,yards_gained,yardline_100,
@@ -287,9 +334,13 @@ Timing <- pbp %>%          ##Main Dataset. With data blending below, we'll add a
   group_by(season, game_id,posteam) %>% 
   mutate(seconds = game_seconds_remaining -lag(game_seconds_remaining,default = game_seconds_remaining[1])) %>% 
   group_by(season,posteam,ScoreDiffGameScript) %>% 
-  summarise(seconds = sum(seconds))
+  summarise(seconds = sum(seconds)*-1)
 
-
+Timing2 <- inner_join(Timing,win_loss, by = c("season","posteam"="home_team"))
+  
+ggplot(Timing2, aes(x = seconds, y = ScoreDiffGameScript))+
+  stat_density_ridges(quantiles = 4, quantile_lines = TRUE)+
+  facet_wrap(~home_team_reg_season_wins)
 
 ##also, how does wins in regular season correllate with plays?
 
@@ -376,10 +427,6 @@ playoff_teams <- rbind(home_playoff,away_playoff) %>%
 
 
 
-
-
-
-
 final <- games %>%            ##grab game-level final outcomes
   filter(season > 2014) %>%
   select(game_id,season,home_score,away_score,result,home_win_loss,away_win_loss)%>%
@@ -395,20 +442,20 @@ final <- games %>%            ##grab game-level final outcomes
 
 ###Blend all data together - need to be mindful that the game-level and season-level data will be at a different level of detail than the pbp data and will cause double counting if used incorrectly
 
-pbpSkinny <- left_join(pbpSkinny,RushPosRank, by = c("season","posteam","rusher_player_name","rusher_player_id"="id"))
+pbpSkinny2 <- left_join(pbpSkinny,RushPosRank, by = c("season","posteam","rusher_player_name","rusher_player_id"="id"))
 
-pbpSkinny <- left_join(pbpSkinny,RecPosRank, by = c("season","posteam","receiver_player_name","receiver_player_id"))
+pbpSkinny2 <- left_join(pbpSkinny2,RecPosRank, by = c("season","posteam","receiver_player_name","receiver_player_id"))
 
-pbpSkinny <- left_join(pbpSkinny,win_loss, by = c("season","home_team"))
+pbpSkinny2 <- left_join(pbpSkinny2,win_loss, by = c("season","home_team"))
 
-pbpSkinny <- left_join(pbpSkinny,playoff_teams, by = c("season","posteam"="team"))
+pbpSkinny2 <- left_join(pbpSkinny2,playoff_teams, by = c("season","posteam"="team"))
 
-pbpSkinny <- left_join(pbpSkinny,final,by = c("season","game_id"))
+pbpSkinny2 <- left_join(pbpSkinny2,final,by = c("season","game_id"))
 
 
 
 ##add fields to simplify any posteam vs hometeam calculation issues brought up by join availability
-pbpSkinny <- pbpSkinny %>%
+pbpSkinny2 <- pbpSkinny2 %>%
   mutate(posteam_win = ifelse(posteam == home_team,home_team_win,away_team_win),
          final_score_posteam = ifelse(posteam == home_team,final_score_home_team,final_score_away_team),
          final_point_diff_posteam = ifelse(posteam == home_team,final_point_diff_home_team,final_point_diff_home_team*-1))
