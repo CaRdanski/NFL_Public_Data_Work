@@ -14,7 +14,7 @@ pcs <- playcallers %>%
 
 ###Load roster data
 roster <- fast_scraper_roster(2019:2021)
-write.csv(roster,"nfl_rosters 2019-2021.csv")
+##write.csv(roster,"nfl_rosters 2019-2021.csv")
 
 roster_skinny <- roster %>% 
   select(season,team,position,full_name,gsis_id,birth_date,height,weight,headshot_url) %>% 
